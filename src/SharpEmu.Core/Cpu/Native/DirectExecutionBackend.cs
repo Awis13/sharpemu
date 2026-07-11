@@ -1868,6 +1868,16 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 
 		byte* code = (byte*)ptr;
 		int offset = 0;
+		// At stub entry, guest RAX holds the guest's return value (e.g. the exit code).
+		// The TlsGetValue call below clobbers RAX (and all volatile registers), so the
+		// value must be shuttled through a callee-saved register that the host ABI
+		// guarantees TlsGetValue preserves. RBX is safe: the guest RBX it holds here is
+		// never read again (the guest has unwound to the host and its registers are not
+		// snapshotted back), and the host RBX is restored by the pop rbx in the epilogue
+		// after the stack switch.
+		EmitByte(code, ref offset, 0x48); // mov rbx, rax (save guest return value)
+		EmitByte(code, ref offset, 0x89);
+		EmitByte(code, ref offset, 0xC3);
 		EmitByte(code, ref offset, 0x48); // sub rsp, 0x20
 		EmitByte(code, ref offset, 0x83);
 		EmitByte(code, ref offset, 0xEC);
@@ -1887,6 +1897,9 @@ public sealed unsafe partial class DirectExecutionBackend : INativeCpuBackend, I
 		EmitByte(code, ref offset, 0x48); // mov rsp, [rax]
 		EmitByte(code, ref offset, 0x8B);
 		EmitByte(code, ref offset, 0x20);
+		EmitByte(code, ref offset, 0x48); // mov rax, rbx (restore guest return value)
+		EmitByte(code, ref offset, 0x89);
+		EmitByte(code, ref offset, 0xD8);
 		EmitHostNonvolatileXmmRestore(code, ref offset);
 		EmitByte(code, ref offset, 0x41); EmitByte(code, ref offset, 0x5F);
 		EmitByte(code, ref offset, 0x41); EmitByte(code, ref offset, 0x5E);
